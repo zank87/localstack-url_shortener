@@ -1,0 +1,53 @@
+# LocalStack
+volume/
+.localstack/
+
+# Environment
+.env
+.env.local
+*.env
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+.venv/
+env/
+.egg-info/
+dist/
+build/
+*.egg
+
+# Lambda packages
+lambdas/**/*.zip
+*.zip
+
+# Project config
+.api_config
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Test
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+
+# Node (if adding frontend later)
+node_modules/

@@ -1,0 +1,39 @@
+services:
+  localstack:
+    container_name: localstack-url-shortener
+    image: localstack/localstack:latest
+    ports:
+      - "127.0.0.1:4566:4566"            # LocalStack Gateway
+    environment:
+      # Core Configuration
+      - DEBUG=${DEBUG:-0}
+      - PERSISTENCE=${PERSISTENCE:-1}
+      - LOCALSTACK_HOST=localhost.localstack.cloud:4566
+
+      # AWS Configuration
+      - AWS_DEFAULT_REGION=us-east-1
+      - AWS_ACCESS_KEY_ID=test
+      - AWS_SECRET_ACCESS_KEY=test
+
+      # Services to enable (optional - all enabled by default)
+      - SERVICES=lambda,apigateway,dynamodb,s3,logs
+
+      # Lambda Configuration
+      - LAMBDA_EXECUTOR=docker
+      - LAMBDA_DOCKER_NETWORK=url-shortener-network
+      - HOST_LAMBDA_DIR=${PWD}/lambdas
+
+    volumes:
+      - "${LOCALSTACK_VOLUME_DIR:-./volume}:/var/lib/localstack"
+      - "/var/run/docker.sock:/var/run/docker.sock"
+    networks:
+      - url-shortener-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4566/_localstack/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+networks:
+  url-shortener-network:
+    driver: bridge
