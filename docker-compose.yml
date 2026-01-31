@@ -19,15 +19,16 @@ services:
       - SERVICES=lambda,apigateway,dynamodb,s3,logs
 
       # Lambda Configuration
+      - DOCKER_HOST=unix:///var/run/docker.sock
       - LAMBDA_EXECUTOR=docker
-      - LAMBDA_DOCKER_NETWORK=url-shortener-network
+      - LAMBDA_DOCKER_NETWORK=url_shortener_localstack-network
       - HOST_LAMBDA_DIR=${PWD}/lambdas
 
     volumes:
       - "${LOCALSTACK_VOLUME_DIR:-./volume}:/var/lib/localstack"
       - "/var/run/docker.sock:/var/run/docker.sock"
     networks:
-      - url-shortener-network
+      - localstack-network
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:4566/_localstack/health"]
       interval: 10s
@@ -35,5 +36,5 @@ services:
       retries: 5
 
 networks:
-  url-shortener-network:
+  localstack-network:
     driver: bridge

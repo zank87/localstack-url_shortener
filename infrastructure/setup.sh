@@ -21,3 +21,43 @@ awslocal dynamodb update-table \
 
 echo "=== DynamoDB Table Created ==="
 awslocal dynamodb describe-table --table-name urls --query 'Table.TableStatus'
+
+echo "=== Packaging Lambda Functions ==="
+
+# Create create_url lambda package
+cd lambdas/create_url
+rm -f lambda.zip
+zip lambda.zip handler.py
+cd ../..
+
+awslocal lambda create-function \
+    --function-name create-url \
+    --runtime python3.11 \
+    --timeout 30 \
+    --zip-file fileb://lambdas/create_url/lambda.zip \
+    --handler handler.handler \
+    --role arn:aws:iam::000000000000:role/lambda-role \
+    --environment Variables="{TABLE_NAME=urls,AWS_ENDPOINT_URL=http://host.docker.internal:4566}" # Resolves to host machine from within Docker container
+
+# Wait for the function to be active
+awslocal lambda wait function-active-v2 --function-name create-url
+
+# Create redirect_url lambda package
+cd lambdas/redirect_url
+rm -f lambda.zip
+zip lambda.zip handler.py
+cd ../..
+
+awslocal lambda create-function \
+    --function-name redirect-url \
+    --runtime python3.11 \
+    --timeout 30 \
+    --zip-file fileb://lambdas/redirect_url/lambda.zip \
+    --handler handler.handler \
+    --role arn:aws:iam::000000000000:role/lambda-role \
+    --environment Variables="{TABLE_NAME=urls,AWS_ENDPOINT_URL=http://host.docker.internal:4566}"
+
+awslocal lambda wait function-active-v2 --function-name redirect-url
+
+echo "=== Lambda Functions Created ==="
+awslocal lambda list-functions --query 'Functions[].FunctionName'
