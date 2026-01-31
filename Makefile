@@ -26,6 +26,11 @@ deploy-lambdas:
 		--function-name redirect-url \
 		--zip-file fileb://lambdas/redirect_url/lambda.zip
 
+	@echo "Redeploying get-analytics Lambda..."
+	@cd lambdas/get_analytics && rm -f lambda.zip && zip lambda.zip handler.py
+	@awslocal lambda update-function-code \
+		--function-name get-analytics \
+		--zip-file fileb://lambdas/get_analytics/lambda.zip
 test:
 	@pytest tests/ -v
 

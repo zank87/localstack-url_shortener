@@ -24,8 +24,25 @@ else
         --global-secondary-index-updates \
             "[{\"Create\":{\"IndexName\":\"original-url-index\",\"KeySchema\":[{\"AttributeName\":\"original_url\",\"KeyType\":\"HASH\"}],\"Projection\":{\"ProjectionType\":\"ALL\"}}}]"
 
-    echo "=== DynamoDB Table Created ==="
+    echo "=== DynamoDB Table 'urls' Created ==="
     awslocal dynamodb describe-table --table-name urls --query 'Table.TableStatus'
+fi
+
+if awslocal dynamodb describe-table --table-name url_clicks &> /dev/null; then
+    echo "DynamoDB table 'url_clicks' already exists. Skipping creation."
+else 
+    awslocal dynamodb create-table \
+        --table-name url_clicks \
+        --attribute-definitions \
+            AttributeName=short_code,AttributeType=S \
+            AttributeName=timestamp,AttributeType=N \
+        --key-schema \
+            AttributeName=short_code,KeyType=HASH \
+            AttributeName=timestamp,KeyType=RANGE \
+        --billing-mode PAY_PER_REQUEST
+
+    echo "=== DynamoDB Table 'url_clicks' Created ==="
+    awslocal dynamodb describe-table --table-name url_clicks --query 'Table.TableStatus'
 fi
 
 echo ""
@@ -81,6 +98,31 @@ else
 fi
 
 awslocal lambda wait function-active-v2 --function-name redirect-url
+
+# Create get_analytics lambda package
+cd lambdas/get_analytics
+rm -f lambda.zip
+zip lambda.zip handler.py
+cd ../..
+
+if awslocal lambda get-function --function-name get-analytics &> /dev/null; then
+    echo "Updating existing get-analytics Lambda function..."
+    awslocal lambda update-function-code \
+        --function-name get-analytics \
+        --zip-file fileb://lambdas/get_analytics/lambda.zip
+else
+    echo "Creating new get-analytics Lambda function..."
+    awslocal lambda create-function \
+        --function-name get-analytics \
+        --runtime python3.11 \
+        --timeout 30 \
+        --zip-file fileb://lambdas/get_analytics/lambda.zip \
+        --handler handler.handler \
+        --role arn:aws:iam::000000000000:role/lambda-role \
+        --environment Variables="{TABLE_NAME=urls,AWS_ENDPOINT_URL=http://host.docker.internal:4566}"
+fi
+
+awslocal lambda wait function-active-v2 --function-name get-analytics
 
 echo "=== Lambda Functions Created ==="
 awslocal lambda list-functions --query 'Functions[].FunctionName'
@@ -154,6 +196,32 @@ else
         --integration-http-method POST \
         --uri arn:aws:apigateway:us-east-1:lambda:path/2015-03-31/functions/arn:aws:lambda:us-east-1:000000000000:function:redirect-url/invocations
 
+    ANALYTICS_RESOURCE_ID=$(awslocal apigateway create-resource \
+        --rest-api-id $API_ID \
+        --parent-id $URLS_RESOURCE_ID \
+        --path-part '{short_code}' \
+        --query 'id' --output text)
+
+    ANALYTICS_STATS_ID=$(awslocal apigateway create-resource \
+        --rest-api-id $API_ID \
+        --parent-id $ANALYTICS_RESOURCE_ID \
+        --path-part 'analytics' \
+        --query 'id' --output text)
+
+    awslocal apigateway put-method \
+        --rest-api-id $API_ID \
+        --resource-id $ANALYTICS_STATS_ID \
+        --http-method GET \
+        --authorization-type NONE
+
+    awslocal apigateway put-integration \
+        --rest-api-id $API_ID \
+        --resource-id $ANALYTICS_STATS_ID \
+        --http-method GET \
+        --type AWS_PROXY \
+        --integration-http-method POST \
+        --uri "arn:aws:apigateway:us-east-1:lambda:path/2015-03-31/functions/arn:aws:lambda:us-east-1:000000000000:function:get-analytics/invocations"
+
     awslocal apigateway create-deployment \
         --rest-api-id $API_ID \
         --stage-name dev
@@ -164,3 +232,4 @@ echo "API Endpoint: http://localhost:4566/restapis/$API_ID/dev/_user_request_/"
 
 # Save for later use
 echo "API_ID=$API_ID" > .api_config
+echo "BASE_URL=http://localhost:4566/restapis/$API_ID/dev/_user_request_" > .api_config

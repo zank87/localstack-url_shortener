@@ -1,5 +1,6 @@
 import json
 import os
+import time
 import boto3
 from boto3.dynamodb.conditions import Key
 
@@ -12,7 +13,24 @@ def get_dynamodb_resource():
         aws_access_key_id='test',
         aws_secret_access_key='test'
     )
+
+def record_click(dynamodb, short_code: str, event: dict):
+    """Record click analytics"""
+    clicks_table = dynamodb.Table('url_clicks')
     
+    headers = event.get('headers', {})
+    
+    click_record = {
+        'short_code': short_code,
+        'timestamp': int(time.time() * 1000),  # Milliseconds for uniqueness
+        'user_agent': headers.get('User-Agent', 'unknown'),
+        'referrer': headers.get('Referer', 'direct'),
+        'ip_address': event.get('requestContext', {}).get('identity', {}).get('sourceIp', 'unknown'),
+        'country': headers.get('CloudFront-Viewer-Country', 'unknown') # Example header from CloudFront
+    }
+    
+    clicks_table.put_item(Item=click_record)
+
 def handler(event, context):
     """Redirect to the original URL and increment click count."""
     try:
@@ -38,6 +56,11 @@ def handler(event, context):
                 'headers': {'Content-Type': 'application/json'},
                 'body': json.dumps({'message': 'URL not found'})
             }
+            
+        try:
+            record_click(dynamodb, short_code, event)
+        except Exception as e:
+            pass # Don't block redirect on analytics failure
             
         table.update_item(
             Key={'short_code': short_code},
