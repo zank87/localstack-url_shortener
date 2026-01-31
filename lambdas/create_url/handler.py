@@ -4,6 +4,8 @@ import hashlib
 import boto3
 import time
 import re
+import urllib.request
+import urllib.error
 
 def get_dynamodb_resource():
     """Create a DynamoDB resource configured for LocalStack."""
@@ -37,6 +39,31 @@ def code_exists(table, code: str) -> bool:
     response = table.get_item(Key={'short_code': code})
     return 'Item' in response
 
+def validate_url_reachable(url: str, timeout: int = 5) -> bool:
+    """Validate if a URL is reachable. Timeout to prevent Lambda hanging."""
+    try:
+        # HEAD is faster for checking reachability than GET (no body downloaded)
+        request = urllib.request.Request(url, method='HEAD')
+        request.add_header('User-Agent', 'URL-Shortener-Validator/1.0')
+        
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            if response.status >= 400:
+                return False, f"URL returned status {response.status}"
+        
+        return True, ""
+        
+    except urllib.error.HTTPError as e:
+        # Some sites block HEAD
+        if e.code == 405: # Method Not Allowed
+            return True, "" # Assume it is reachable for dev purposes, come back later and update
+        return False, f"HTTP error: {e.code}"
+    
+    except urllib.error.URLError as e:
+        return False, f"URL error: {e.reason}"
+    
+    except Exception as e:
+        return False, f"Validation failed: {str(e)}"
+
 def handler(event, context):
     """Lambda function handler to create a shortened URL."""
     try:
@@ -44,6 +71,7 @@ def handler(event, context):
         body = json.loads(event.get('body', '{}'))
         original_url = body.get('url')
         custom_code = body.get('custom_code')
+        skip_validation = body.get('skip_validation', False)
         
         if not original_url:
             return {
@@ -59,6 +87,18 @@ def handler(event, context):
                 'body': json.dumps({'message': 'Invalid URL format'})
             }
 
+        if not skip_validation:
+            is_reachable, error_msg = validate_url_reachable(original_url)
+            if not is_reachable:
+                return {
+                    'statusCode': 400,
+                    'headers': {'Content-Type': 'application/json'},
+                    'body': json.dumps({
+                        'error': 'URL validation failed',
+                        'details': error_msg
+                    })
+                }
+            
         dynamodb = get_dynamodb_resource()
         table = dynamodb.Table(os.environ.get('TABLE_NAME', 'urls'))
 
